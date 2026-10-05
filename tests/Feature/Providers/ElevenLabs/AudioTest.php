@@ -71,6 +71,79 @@ test('audio uses default model when none specified', function (): void {
     Http::assertSent(fn (Request $request): bool => json_decode($request->body(), true)['model_id'] === 'eleven_multilingual_v2');
 });
 
+test('audio sends query string provider options as query parameters instead of in the body', function (): void {
+    Http::fake(['*' => fakeElevenAudioResponse()]);
+
+    Audio::of('Hello')
+        ->withProviderOptions([
+            'output_format' => 'wav_44100',
+            'enable_logging' => false,
+            'optimize_streaming_latency' => 0,
+        ])
+        ->generate(provider: 'eleven', model: 'eleven_multilingual_v2');
+
+    Http::assertSent(function (Request $request): bool {
+        $body = json_decode($request->body(), true);
+
+        parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+        return str_starts_with($request->url(), 'https://api.elevenlabs.io/v1/text-to-speech/XrExE9yKIg1WjnnlVkGX?')
+            && $query === ['output_format' => 'wav_44100', 'enable_logging' => 'false', 'optimize_streaming_latency' => '0']
+            && ! array_key_exists('output_format', $body)
+            && ! array_key_exists('enable_logging', $body)
+            && ! array_key_exists('optimize_streaming_latency', $body);
+    });
+});
+
+test('audio sends enable_logging true as a literal query string boolean', function (): void {
+    Http::fake(['*' => fakeElevenAudioResponse()]);
+
+    Audio::of('Hello')
+        ->withProviderOptions(['enable_logging' => true])
+        ->generate(provider: 'eleven', model: 'eleven_multilingual_v2');
+
+    Http::assertSent(fn (Request $request): bool => $request->url() === 'https://api.elevenlabs.io/v1/text-to-speech/XrExE9yKIg1WjnnlVkGX?enable_logging=true');
+});
+
+test('audio keeps body provider options in the request body', function (): void {
+    Http::fake(['*' => fakeElevenAudioResponse()]);
+
+    Audio::of('Hello')
+        ->withProviderOptions([
+            'output_format' => 'mp3_44100_192',
+            'seed' => 42,
+            'voice_settings' => ['stability' => 0.5],
+            'model_id' => 'hijacked',
+        ])
+        ->generate(provider: 'eleven', model: 'eleven_multilingual_v2');
+
+    Http::assertSent(function (Request $request): bool {
+        $body = json_decode($request->body(), true);
+
+        return $body['seed'] === 42
+            && $body['voice_settings'] === ['stability' => 0.5]
+            && $body['model_id'] === 'eleven_multilingual_v2'
+            && $body['text'] === 'Hello';
+    });
+});
+
+test('audio response mime type follows the requested output format', function (string $outputFormat, string $mimeType): void {
+    Http::fake(['*' => fakeElevenAudioResponse()]);
+
+    $response = Audio::of('Hello')
+        ->withProviderOptions(['output_format' => $outputFormat])
+        ->generate(provider: 'eleven', model: 'eleven_multilingual_v2');
+
+    expect($response->mimeType())->toBe($mimeType);
+})->with([
+    ['mp3_44100_128', 'audio/mpeg'],
+    ['wav_44100', 'audio/wav'],
+    ['pcm_16000', 'audio/pcm'],
+    ['opus_48000_128', 'audio/opus'],
+    ['ulaw_8000', 'audio/ulaw'],
+    ['alaw_8000', 'audio/alaw'],
+]);
+
 test('audio throws when the API returns an error', function (): void {
     Http::fake(['*' => Http::response(['detail' => 'unauthorized'], 401)]);
 
