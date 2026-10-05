@@ -44,14 +44,11 @@ class ElevenLabsGateway implements AudioGateway, TranscriptionGateway
             default => $voice,
         };
 
-        $queryOptions = ['output_format', 'enable_logging', 'optimize_streaming_latency'];
+        [$query, $body] = $this->splitQueryOptions($providerOptions, ['output_format', 'enable_logging', 'optimize_streaming_latency']);
 
         $response = $this->withErrorHandling($provider->name(), fn () => $this->client($provider, $timeout)
-            ->withQueryParameters(array_map(
-                fn (mixed $value): mixed => is_bool($value) ? ($value ? 'true' : 'false') : $value,
-                Arr::only($providerOptions, $queryOptions),
-            ))
-            ->post('text-to-speech/'.$voice, array_merge(Arr::except($providerOptions, $queryOptions), [
+            ->withQueryParameters($query)
+            ->post('text-to-speech/'.$voice, array_merge($body, [
                 'model_id' => $model,
                 'text' => $text,
             ]))->throw());
@@ -93,9 +90,12 @@ class ElevenLabsGateway implements AudioGateway, TranscriptionGateway
         int $timeout = 30,
         array $providerOptions = [],
     ): TranscriptionResponse {
+        [$query, $body] = $this->splitQueryOptions($providerOptions, ['enable_logging']);
+
         $response = $this->withErrorHandling($provider->name(), fn () => $this->client($provider, $timeout)
+            ->withQueryParameters($query)
             ->attach('file', $audio->content(), 'file', array_filter(['Content-Type' => $audio->mimeType()]))
-            ->post('speech-to-text', array_merge($providerOptions, array_filter([
+            ->post('speech-to-text', array_merge($body, array_filter([
                 'model_id' => $model,
                 'language_code' => $language,
                 'diarize' => $diarize ? 'true' : 'false',
@@ -124,6 +124,24 @@ class ElevenLabsGateway implements AudioGateway, TranscriptionGateway
             new TranscriptionUsage(audioSeconds: $response['audio_duration_secs'] ?? null),
             new Meta($provider->name(), $model),
         );
+    }
+
+    /**
+     * Split the provider options into query string parameters and the request body.
+     *
+     * @param  array<string, mixed>  $providerOptions
+     * @param  array<int, string>  $queryOptions
+     * @return array{0: array<string, mixed>, 1: array<string, mixed>}
+     */
+    protected function splitQueryOptions(array $providerOptions, array $queryOptions): array
+    {
+        return [
+            array_map(
+                fn (mixed $value): mixed => is_bool($value) ? ($value ? 'true' : 'false') : $value,
+                Arr::only($providerOptions, $queryOptions),
+            ),
+            Arr::except($providerOptions, $queryOptions),
+        ];
     }
 
     /**
