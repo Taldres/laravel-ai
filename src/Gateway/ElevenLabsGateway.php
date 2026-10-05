@@ -5,7 +5,6 @@ namespace Laravel\Ai\Gateway;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 use Laravel\Ai\Contracts\Files\TranscribableAudio;
 use Laravel\Ai\Contracts\Gateway\AudioGateway;
 use Laravel\Ai\Contracts\Gateway\TranscriptionGateway;
@@ -57,23 +56,8 @@ class ElevenLabsGateway implements AudioGateway, TranscriptionGateway
             base64_encode((string) $response),
             new Usage,
             new Meta($provider->name(), $model),
-            $this->audioMimeType($providerOptions['output_format'] ?? null),
+            $response->header('Content-Type') ?: 'audio/mpeg',
         );
-    }
-
-    /**
-     * Map an ElevenLabs output format (e.g. "mp3_44100_128") to the HTTP audio MIME type.
-     */
-    protected function audioMimeType(?string $outputFormat): string
-    {
-        return match (Str::before((string) $outputFormat, '_')) {
-            'wav' => 'audio/wav',
-            'pcm' => 'audio/pcm',
-            'opus' => 'audio/opus',
-            'ulaw' => 'audio/ulaw',
-            'alaw' => 'audio/alaw',
-            default => 'audio/mpeg',
-        };
     }
 
     /**
